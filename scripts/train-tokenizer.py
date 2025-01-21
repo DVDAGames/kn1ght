@@ -47,7 +47,13 @@ training_data = []
 for x in dataset["train"].select_columns("PGN").to_list():
     training_data.append(x["PGN"])
 
-tokenizer = Tokenizer(BPE(unk_token=SPECIAL_TOKENS["UNKNOWN"], fuse_unk=True))
+tokenizer = Tokenizer(
+    BPE(
+        unk_token=SPECIAL_TOKENS["UNKNOWN"],
+        fuse_unk=True,
+        pad_token=SPECIAL_TOKENS["PAD"],
+    )
+)
 
 tokenizer.normalizer = NFD()
 
