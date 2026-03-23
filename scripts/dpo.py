@@ -483,7 +483,7 @@ class DPOConfig:
     log_interval: int = 20
     save_interval: int = 250
     val_fraction: float = 0.1
-    seed: int = 42
+    seed: int = 1997
 
 
 # ── Training ──────────────────────────────────────────────────────────────────

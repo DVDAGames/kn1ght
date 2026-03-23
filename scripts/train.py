@@ -716,7 +716,7 @@ class TrainConfig:
     save_interval: int = 2000
     # Output
     output_dir: str = str(OUTPUT_DIR)
-    seed: int = 42
+    seed: int = 1997
     # Resume
     resume_from: Optional[str] = None      # path to a checkpoint to resume from
 

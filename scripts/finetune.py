@@ -257,7 +257,7 @@ class FinetuneConfig:
     eval_iters: int = 50
     log_interval: int = 50
     save_interval: int = 1000
-    seed: int = 42
+    seed: int = 1997
 
 
 # ── Fine-tuning loop ──────────────────────────────────────────────────────────

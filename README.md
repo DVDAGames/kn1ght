@@ -12,14 +12,14 @@ A family of small chess language models designed for tutoring, focused on openin
 
 Models are named after chess time controls to reflect their size tier.
 
-| Model             | Params    | Legal Move Rate | Status      |
-| ----------------- | --------- | --------------- | ----------- |
-| **kn1ght-bullet** | 4.3M      | 99.8%           | Published   |
-| kn1ght-blitz      | ~30M      | —               | In-Progress |
-| kn1ght-rapid      | ~150–200M | —               | Planned     |
-| kn1ght-classical  | ~1–3B     | —               | Planned     |
+| Model                                                                 | Params    | Legal Move Rate | Status      |
+| --------------------------------------------------------------------- | --------- | --------------- | ----------- |
+| [kn1ght-bullet](https://huggingface.co/InterwebAlchemy/kn1ght-bullet) | 4.3M      | 99.8%           | Published   |
+| kn1ght-blitz                                                          | ~30M      | —               | In-Progress |
+| kn1ght-rapid                                                          | ~150–200M | —               | Planned     |
+| kn1ght-classical                                                      | ~1–3B     | —               | Planned     |
 
-In testing, **kn1ght-bullet** (4.3M parameters) nearly matches GPT-3.5 Turbo Instruct, a model with ~175B parameters that [anecdotally performs well playing chess](https://dynomight.net/chess/) in opening-phase centipawn loss (CPL), the metric the [Stockfish engine](https://stockfishchess.org/) uses to evaluate move quality. In the middle game, evaluated on a small sample of chess puzzle positions, `kn1ght-bullet` struggles due to its limited training and small size, but it still performs nearly as well as `gpt-4.1-nano`, a model with ~8B parameters, on these puzzle positions.
+In testing, [kn1ght-bullet](https://huggingface.co/InterwebAlchemy/kn1ght-bullet) (4.3M parameters) nearly matches GPT-3.5 Turbo Instruct, a model with ~175B parameters that [anecdotally performs well playing chess](https://dynomight.net/chess/) in opening-phase centipawn loss (CPL), the metric the [Stockfish engine](https://stockfishchess.org/) uses to evaluate move quality. In the middle game, evaluated on a small sample of chess puzzle positions, [kn1ght-bullet](https://huggingface.co/InterwebAlchemy/kn1ght-bullet) struggles due to its limited training and small size, but it still performs nearly as well as `gpt-4.1-nano`, a model with ~8B parameters, on these puzzle positions.
 
 ### Evaluations
 
@@ -30,10 +30,10 @@ Evaluated against chess-specialist and frontier LLMs on opening play (50 positio
 | Gemini 3.1 Flash Lite                                                  | ~8B      | 2.58       | 100%      | 0.0%      |
 | [chessgpt-base-v1](https://huggingface.co/Waterhorse/chessgpt-base-v1) | ~85M     | 4.92       | 99.6%     | 0.2%      |
 | gpt-3.5-turbo-instruct                                                 | ~175B    | 5.79       | 99.4%     | 0.0%      |
-| **kn1ght-bullet**                                                      | **4.3M** | **5.83**   | **99.8%** | **0.0%**  |
+| [kn1ght-bullet](https://huggingface.co/InterwebAlchemy/kn1ght-bullet)  | **4.3M** | **5.83**   | **99.8%** | **0.0%**  |
 | DeepSeek V3                                                            | ~685B    | 8.18       | 86.0%     | 0.4%      |
 
-`kn1ght-bullet` beats `chessgpt-base-v1` in Sicilian and Ruy Lopez lines. The gap in under-trained openings (Benoni, Colle, Max Lange) should narrow with larger `kn1ght` family model tiers.
+[kn1ght-bullet](https://huggingface.co/InterwebAlchemy/kn1ght-bullet) beats [chessgpt-base-v1](https://huggingface.co/Waterhorse/chessgpt-base-v1) in Sicilian and Ruy Lopez lines. The gap in under-trained openings (Benoni, Colle, Max Lange) should narrow with larger `kn1ght` family model tiers.
 
 An initial pre-evaluation was run against several other models, but the above table reflects the selection of models that were most interesting for comparison and discussion. The full evaluation notebook is available in the repo for reference.
 
@@ -42,7 +42,7 @@ The full list of models evaluated in the initial evaluation is as follows:
 | Model Name                                                         | Parameters | Description                                                                                                          |
 | ------------------------------------------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------- |
 | kn1ght-sft-v5                                                      | ~4.3M      | kn1ght-bullet checkpoint after five rounds of legality-filtered SFT, but prior to DPO                                |
-| kn1ght-bullet                                                      | ~4.3M      | kn1ght-bullet checkpoint after a short DPO run                                                                       |
+| kn1ght-dpo                                                         | ~4.3M      | kn1ght-bullet checkpoint after a short DPO run; this checkpoint would go on to become `kn1ght-bullet`                |
 | chessgpt-base-v1                                                   | ~85M       | ChessGPT base model                                                                                                  |
 | [chesspythia-70m](https://huggingface.co/mlabonne/chesspythia-70m) | ~70M       | Pythia70m model fine-tuned on chess data for the [chessllm project](https://huggingface.co/spaces/mlabonne/chessllm) |
 | gpt-3.5-turbo-instruct                                             | ~175B      | GPT-3.5 Turbo Instruct model                                                                                         |
@@ -53,7 +53,7 @@ The full list of models evaluated in the initial evaluation is as follows:
 | gemini-3.1-flash-lite-preview                                      | ~3.1B      | Gemini Flash Lite Preview model                                                                                      |
 | deepseek-v3                                                        | ~685B      | DeepSeek V3 model                                                                                                    |
 
-All frontier-lab models were tested via the OpenRouter API, chess-specific models were loaded via HuggingFace Transformers library, `kn1ght-sft-v5` and `kn1ght-bullet` were tested via local inference using the checkpoints from the training pipeline.
+All frontier-lab models were tested via the OpenRouter API, chess-specific models were loaded via HuggingFace Transformers library, `kn1ght-sft-v5` and `kn1ght-dpo` were tested via local inference using the checkpoints from the training pipeline.
 
 ## Tokenizer
 
@@ -144,7 +144,7 @@ uv run python scripts/export.py
 | `scripts/finetune.py`                  | Phase 2: legality-filtered SFT                                                            |
 | `scripts/dpo.py`                       | Phase 3: DPO quality alignment                                                            |
 | `scripts/export.py`                    | Export checkpoint → HuggingFace-ready artifacts (copies assets, writes configs)           |
-| `scripts/upload.py`                    | Upload model artifacts and training checkpoints to HuggingFace Hub                       |
+| `scripts/upload.py`                    | Upload model artifacts and training checkpoints to HuggingFace Hub                        |
 | `scripts/inference.py`                 | Constrained decoding utility (planned)                                                    |
 | `notebooks/evaluation.ipynb`           | Evaluation harness — Phase A/C/C'/B                                                       |
 | `notebooks/build-puzzle-dataset.ipynb` | Builds Lichess PGN puzzle dataset                                                         |
