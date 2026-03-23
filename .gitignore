@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+,mypy_cache/
 *.py[oc]
 build/
 dist/
@@ -8,4 +9,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data and local notes
 .data
+notes/
+
+# Miscellaneous
+.DS_Store
+*.log
