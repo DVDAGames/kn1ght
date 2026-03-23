@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KN1GHT DPO Training Script — Move Quality Alignment (Phase 3)
+kn1ght DPO Training Script — Move Quality Alignment (Phase 3)
 
 Implements Direct Preference Optimization to improve the model's move quality
 ranking. Uses Stockfish to evaluate positions from the opening list and build
@@ -805,7 +805,7 @@ def _sample_generation(model, tokenizer, device, block_size):
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="KN1GHT DPO training — move quality alignment")
+    p = argparse.ArgumentParser(description="kn1ght DPO training — move quality alignment")
     p.add_argument(
         "--checkpoint",
         type=str,

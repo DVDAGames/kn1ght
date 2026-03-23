@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KN1GHT Chess Language Model — Training Script
+kn1ght Chess Language Model — Training Script
 
 Architecture: GPT-style decoder-only transformer (kn1ght-small)
   - 4 layers, 4 heads, 256 embedding dim, 256 token context
@@ -1001,7 +1001,7 @@ def generate_from_checkpoint(
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="KN1GHT chess LM training")
+    p = argparse.ArgumentParser(description="kn1ght chess LM training")
     p.add_argument(
         "--max-games", type=int, default=100_000, help="Games to load from HF dataset"
     )

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KN1GHT Fine-tuning Script — Legality-Filtered SFT (Phase 2)
+kn1ght Fine-tuning Script — Legality-Filtered SFT (Phase 2)
 
 Builds on top of the pre-trained checkpoint from train.py:
 
@@ -460,7 +460,7 @@ def _sample(model, tokenizer, device, block_size, g_end_id):
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="KN1GHT legality-filtered SFT fine-tuning")
+    p = argparse.ArgumentParser(description="kn1ght legality-filtered SFT fine-tuning")
     p.add_argument("--checkpoint", type=str, default=str(PRETRAIN_DIR / "ckpt_latest.pt"))
     p.add_argument("--output-dir", type=str, default=str(SFT_OUTPUT_DIR))
     p.add_argument("--n-per-opening", type=int, default=5, help="Continuations generated per prompt")

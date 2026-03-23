@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Export a KN1GHT checkpoint to HuggingFace-ready artifacts.
+Export a kn1ght checkpoint to HuggingFace-ready artifacts.
 
 Produces:
   dist/kn1ght-bullet/
@@ -162,7 +162,7 @@ def write_tokenizer(output_dir: Path) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Export KN1GHT checkpoint for HuggingFace")
+    parser = argparse.ArgumentParser(description="Export kn1ght checkpoint for HuggingFace")
     parser.add_argument("--checkpoint", type=Path, default=CHECKPOINT)
     parser.add_argument("--output",     type=Path, default=OUTPUT_DIR)
     parser.add_argument("--no-quantize", action="store_true")
