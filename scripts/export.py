@@ -4,6 +4,9 @@ Export a kn1ght checkpoint to HuggingFace-ready artifacts.
 
 Produces:
   dist/kn1ght-bullet/
+    README.md                ← model card (copied from repo root if absent)
+    LICENSE                  ← CC-BY-4.0 (copied from repo root if absent)
+    kn1ght-bullet.png        ← model avatar (copied from assets/)
     config.json              ← model architecture (gpt2-compatible)
     generation_config.json   ← default generation parameters
     tokenizer.json           ← BPE tokenizer (transformers.js-compatible)
@@ -34,7 +37,13 @@ from train import ChessGPT, ModelConfig, TOKENIZER_PATH
 CHECKPOINT  = ROOT / ".data/models/kn1ght-dpo/ckpt_000300.pt"
 OUTPUT_DIR  = ROOT / "dist/kn1ght-bullet"
 ONNX_DIR    = OUTPUT_DIR / "onnx"
+ASSETS_DIR  = ROOT / "assets"
 OPSET       = 17
+
+DATASETS = [
+    "InterwebAlchemy/pgn-dataset",
+    "InterwebAlchemy/pgn-dataset-including-special-tokens",
+]
 
 
 # ── Thin wrapper that returns only logits (ONNX can't handle optional outputs) ─
@@ -161,6 +170,27 @@ def write_tokenizer(output_dir: Path) -> None:
     print(f"  Wrote  tokenizer_config.json")
 
 
+def copy_static_files(output_dir: Path) -> None:
+    """Copy assets and documentation files into the export directory."""
+    # Avatar / thumbnail
+    src_png = ASSETS_DIR / "kn1ght-bullet.png"
+    if src_png.exists():
+        shutil.copy(src_png, output_dir / "kn1ght-bullet.png")
+        print(f"  Copied  kn1ght-bullet.png")
+    else:
+        print(f"  Warning: {src_png} not found — thumbnail will be missing")
+
+    # Model card README (preserve any existing hand-edited version)
+    src_readme = output_dir / "README.md"
+    if not src_readme.exists():
+        print(f"  Warning: README.md not found in {output_dir} — add it manually")
+
+    # License (preserve existing; warn if absent)
+    src_license = output_dir / "LICENSE"
+    if not src_license.exists():
+        print(f"  Warning: LICENSE not found in {output_dir} — add it manually")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Export kn1ght checkpoint for HuggingFace")
     parser.add_argument("--checkpoint", type=Path, default=CHECKPOINT)
@@ -190,10 +220,13 @@ def main():
     write_generation_config(args.output)
     write_tokenizer(args.output)
 
+    print("\nCopying static files...")
+    copy_static_files(args.output)
+
     print(f"\nDone. Artifacts at: {args.output}")
     print("\nTo publish:")
     print("  huggingface-cli login")
-    print(f"  huggingface-cli upload InterwebAlchemy/kn1ght-bullet {args.output} .")
+    print(f"  uv run python scripts/upload.py")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 # kn1ght: A Family of Chess Language Models
 
+![kn1ght-bullet](assets/kn1ght-bullet.png)
+
 A family of small chess language models designed for tutoring, focused on opening-phase play. Models are trained on PGN notation using a custom [chess-optimized Byte Pair Encoding (BPE) tokenizer](https://github.com/DVDAGames/pgn-tokenizer) and a three-stage pipeline:
 
 1. pre-training on a [dataset of chess games](https://huggingface.co/datasets/InterwebAlchemy/pgn-dataset) adapted from the work of the Chess Research Project, which sourced the original games from [ChessDB](https://chessdb.sourceforge.net/)
@@ -141,7 +143,8 @@ uv run python scripts/export.py
 | `scripts/train.py`                     | Phase 1: pre-training; defines `ChessGPT`, `ModelConfig`, `TokenStream`, `CHESS_OPENINGS` |
 | `scripts/finetune.py`                  | Phase 2: legality-filtered SFT                                                            |
 | `scripts/dpo.py`                       | Phase 3: DPO quality alignment                                                            |
-| `scripts/export.py`                    | Export checkpoint → HuggingFace-ready artifacts                                           |
+| `scripts/export.py`                    | Export checkpoint → HuggingFace-ready artifacts (copies assets, writes configs)           |
+| `scripts/upload.py`                    | Upload model artifacts and training checkpoints to HuggingFace Hub                       |
 | `scripts/inference.py`                 | Constrained decoding utility (planned)                                                    |
 | `notebooks/evaluation.ipynb`           | Evaluation harness — Phase A/C/C'/B                                                       |
 | `notebooks/build-puzzle-dataset.ipynb` | Builds Lichess PGN puzzle dataset                                                         |
