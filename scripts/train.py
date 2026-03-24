@@ -1009,6 +1009,9 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--block-size", type=int, default=256)
+    p.add_argument("--n-layer", type=int, default=4)
+    p.add_argument("--n-head", type=int, default=4)
+    p.add_argument("--n-embd", type=int, default=256)
     p.add_argument(
         "--openings-repeat", type=int, default=10, help="Opening oversampling factor"
     )
@@ -1063,6 +1066,9 @@ def main():
         batch_size=args.batch_size,
         learning_rate=args.lr,
         block_size=args.block_size,
+        n_layer=args.n_layer,
+        n_head=args.n_head,
+        n_embd=args.n_embd,
         openings_repeat=args.openings_repeat,
         turn_number_weight=args.turn_weight,
         output_dir=args.output_dir,
