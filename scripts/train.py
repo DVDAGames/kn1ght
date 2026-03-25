@@ -24,6 +24,7 @@ import argparse
 import json
 import math
 import random
+import re
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -45,379 +46,14 @@ OUTPUT_DIR = ROOT / ".data" / "models" / "kn1ght-small"
 # The special-tokens variant already has [g_start] / [g_end] wrapped around each game
 HF_DATASET = "InterwebAlchemy/pgn-dataset-including-special-tokens"
 
-# ─── Common Chess Openings ────────────────────────────────────────────────────
-# ECO-coded openings in plain PGN (no metadata).  These will be oversampled
-# during training so the model develops strong prior knowledge of opening lines.
+# ─── Chess Openings ───────────────────────────────────────────────────────────
+# Named openings are loaded from Lichess/chess-openings (CC0, 3,627 entries).
+# Short seed lines (not in any encyclopedia) are appended to reinforce the
+# model's priors on the very first moves of common replies.
+# Openings are oversampled during training so the model develops strong prior
+# knowledge of opening lines.
 
-CHESS_OPENINGS = [
-    # ── Ruy Lopez ─────────────────────────────────────────────────────────────
-    (
-        "Ruy Lopez (Main Line)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O",
-    ),
-    (
-        "Ruy Lopez (Berlin)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 Nf6 4.O-O Nxe4 5.d4 Nd6 6.Bxc6 dxc6 7.dxe5 Nf5",
-    ),
-    (
-        "Ruy Lopez (Marshall Attack)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O 9.h3 Na5 10.Bc2 c5 11.d4 Nd7",
-    ),
-    (
-        "Ruy Lopez (Breyer)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O 9.h3 Nb8 10.d4 Nbd7",
-    ),
-    (
-        "Ruy Lopez (Chigorin)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O 9.h3 Na5 10.Bc2 c5 11.d4 Qc7",
-    ),
-    (
-        "Ruy Lopez (Archangel)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Bc5 6.c3 b5 7.Bb3 d6 8.d4 Bb6",
-    ),
-    (
-        "Ruy Lopez (Exchange)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Bxc6 dxc6 5.O-O f6 6.d4 exd4 7.Nxd4 c5",
-    ),
-    (
-        "Ruy Lopez (Anti-Marshall)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O 9.a4",
-    ),
-    # ── Italian / Open Games ──────────────────────────────────────────────────
-    (
-        "Italian (Giuoco Piano)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.c3 Nf6 5.d4 exd4 6.cxd4 Bb4+ 7.Nc3",
-    ),
-    (
-        "Italian (Giuoco Pianissimo)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.d3 Nf6 5.Nc3 d6 6.O-O O-O",
-    ),
-    (
-        "Italian (Modern)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.O-O Nf6 5.d3 O-O 6.Nc3 d6 7.h3",
-    ),
-    (
-        "Italian (Two Knights)",
-        "1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6 4.Ng5 d5 5.exd5 Na5 6.Bb5+ c6 7.dxc6 bxc6",
-    ),
-    ("Evans Gambit", "1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.b4 Bxb4 5.c3 Ba5 6.d4 exd4 7.O-O"),
-    (
-        "Max Lange Attack",
-        "1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.O-O Nf6 5.d4 exd4 6.e5 d5 7.exf6 dxc4 8.Re1+",
-    ),
-    (
-        "Scotch Game",
-        "1.e4 e5 2.Nf3 Nc6 3.d4 exd4 4.Nxd4 Nf6 5.Nxc6 bxc6 6.e5 Qe7 7.Qe2 Nd5",
-    ),
-    ("Scotch Gambit", "1.e4 e5 2.Nf3 Nc6 3.d4 exd4 4.Bc4 Bc5 5.c3 Nf6 6.cxd4 Bb4+"),
-    ("Four Knights", "1.e4 e5 2.Nf3 Nc6 3.Nc3 Nf6 4.Bb5 Nd4 5.Ba4 Bc5 6.Nxe5 O-O"),
-    (
-        "Petroff Defense",
-        "1.e4 e5 2.Nf3 Nf6 3.Nxe5 d6 4.Nf3 Nxe4 5.d4 d5 6.Bd3 Be7 7.O-O Nc6",
-    ),
-    (
-        "Philidor Defense",
-        "1.e4 e5 2.Nf3 d6 3.d4 Nf6 4.Nc3 Nbd7 5.Bc4 Be7 6.O-O O-O",
-    ),
-    (
-        "King's Gambit Accepted",
-        "1.e4 e5 2.f4 exf4 3.Nf3 g5 4.h4 g4 5.Ne5 Nf6 6.d4 d6 7.Nd3",
-    ),
-    (
-        "King's Gambit Declined",
-        "1.e4 e5 2.f4 Bc5 3.Nf3 d6 4.c3 Nf6 5.d4 exd4 6.cxd4 Bb6",
-    ),
-    (
-        "King's Gambit (Falkbeer Counter)",
-        "1.e4 e5 2.f4 d5 3.exd5 e4 4.d3 Nf6 5.dxe4 Nxe4 6.Nf3 Bc5",
-    ),
-    ("Vienna Game", "1.e4 e5 2.Nc3 Nf6 3.f4 d5 4.fxe5 Nxe4 5.Nf3 Be7 6.d4 Nxc3"),
-    ("Danish Gambit", "1.e4 e5 2.d4 exd4 3.c3 dxc3 4.Bc4 cxb2 5.Bxb2 d5 6.Bxd5 Nf6"),
-    # ── Sicilian ─────────────────────────────────────────────────────────────
-    (
-        "Sicilian Najdorf",
-        "1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 a6 6.Bg5 e6 7.f4",
-    ),
-    (
-        "Sicilian Najdorf (English Attack)",
-        "1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 a6 6.Be3 e5 7.Nb3 Be6 8.f3",
-    ),
-    (
-        "Sicilian Dragon",
-        "1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 g6 6.Be3 Bg7 7.f3 O-O",
-    ),
-    (
-        "Sicilian Dragon (Yugoslav Attack)",
-        "1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 g6 6.Be3 Bg7 7.f3 O-O 8.Qd2 Nc6 9.O-O-O",
-    ),
-    (
-        "Sicilian Sveshnikov",
-        "1.e4 c5 2.Nf3 Nc6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 e5 6.Ndb5 d6 7.Bg5 a6 8.Na3 b5",
-    ),
-    (
-        "Sicilian Scheveningen",
-        "1.e4 c5 2.Nf3 e6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 d6 6.Be2 Be7 7.O-O O-O",
-    ),
-    (
-        "Sicilian Keres Attack",
-        "1.e4 c5 2.Nf3 e6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 d6 6.g4 Nc6 7.g5 Nd7",
-    ),
-    (
-        "Sicilian Classical",
-        "1.e4 c5 2.Nf3 Nc6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 d6 6.Bg5 e6 7.Qd2",
-    ),
-    (
-        "Sicilian Richter-Rauzer",
-        "1.e4 c5 2.Nf3 Nc6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 d6 6.Bg5 e6 7.Qd2 a6 8.O-O-O",
-    ),
-    (
-        "Sicilian Taimanov",
-        "1.e4 c5 2.Nf3 Nc6 3.d4 cxd4 4.Nxd4 e6 5.Nc3 Qc7 6.Be2 a6 7.O-O Nf6",
-    ),
-    ("Sicilian Kan", "1.e4 c5 2.Nf3 e6 3.d4 cxd4 4.Nxd4 a6 5.Nc3 Qc7 6.Be2 Nf6 7.O-O"),
-    (
-        "Sicilian Accelerated Dragon",
-        "1.e4 c5 2.Nf3 Nc6 3.d4 cxd4 4.Nxd4 g6 5.Nc3 Bg7 6.Be3 Nf6",
-    ),
-    (
-        "Alapin Sicilian",
-        "1.e4 c5 2.c3 Nf6 3.e5 Nd5 4.d4 cxd4 5.Nf3 Nc6 6.Bc4 Nb6 7.Bb3",
-    ),
-    (
-        "Smith-Morra Gambit",
-        "1.e4 c5 2.d4 cxd4 3.c3 dxc3 4.Nxc3 Nc6 5.Nf3 d6 6.Bc4 e6 7.O-O",
-    ),
-    (
-        "Grand Prix Attack",
-        "1.e4 c5 2.Nc3 Nc6 3.f4 g6 4.Nf3 Bg7 5.Bc4 e6 6.f5 exf5 7.exf5",
-    ),
-    # ── French ───────────────────────────────────────────────────────────────
-    ("French Winawer", "1.e4 e6 2.d4 d5 3.Nc3 Bb4 4.e5 c5 5.a3 Bxc3+ 6.bxc3 Ne7 7.Qg4"),
-    (
-        "French Classical",
-        "1.e4 e6 2.d4 d5 3.Nc3 Nf6 4.Bg5 Be7 5.e5 Nfd7 6.Bxe7 Qxe7 7.f4",
-    ),
-    ("French Tarrasch", "1.e4 e6 2.d4 d5 3.Nd2 Nf6 4.e5 Nfd7 5.Bd3 c5 6.c3 Nc6 7.Ne2"),
-    ("French Advance", "1.e4 e6 2.d4 d5 3.e5 c5 4.c3 Nc6 5.Nf3 Qb6 6.Bd3 cxd4 7.cxd4"),
-    (
-        "French Exchange",
-        "1.e4 e6 2.d4 d5 3.exd5 exd5 4.Nf3 Nf6 5.Bd3 Bd6 6.O-O O-O 7.Bg5",
-    ),
-    (
-        "French Rubinstein",
-        "1.e4 e6 2.d4 d5 3.Nc3 dxe4 4.Nxe4 Nd7 5.Nf3 Ngf6 6.Nxf6+ Nxf6 7.Bd3 c5",
-    ),
-    (
-        "French MacCutcheon",
-        "1.e4 e6 2.d4 d5 3.Nc3 Nf6 4.Bg5 Bb4 5.e5 h6 6.Bd2 Bxc3 7.bxc3 Ne4",
-    ),
-    # ── Caro-Kann ────────────────────────────────────────────────────────────
-    (
-        "Caro-Kann Classical",
-        "1.e4 c6 2.d4 d5 3.Nc3 dxe4 4.Nxe4 Bf5 5.Ng3 Bg6 6.h4 h6 7.Nf3 Nd7",
-    ),
-    ("Caro-Kann Advance", "1.e4 c6 2.d4 d5 3.e5 Bf5 4.Nf3 e6 5.Be2 c5 6.O-O Nc6 7.c3"),
-    (
-        "Caro-Kann Panov",
-        "1.e4 c6 2.d4 d5 3.exd5 cxd5 4.c4 Nf6 5.Nc3 e6 6.Nf3 Be7 7.cxd5",
-    ),
-    (
-        "Caro-Kann Exchange",
-        "1.e4 c6 2.d4 d5 3.exd5 cxd5 4.Bd3 Nc6 5.c3 Nf6 6.Bf4 Bg4 7.Qb3",
-    ),
-    (
-        "Caro-Kann Two Knights",
-        "1.e4 c6 2.Nc3 d5 3.Nf3 Bg4 4.h3 Bxf3 5.Qxf3 e6 6.d4 Nf6 7.Bd3",
-    ),
-    # ── Scandinavian ─────────────────────────────────────────────────────────
-    (
-        "Scandinavian Defense",
-        "1.e4 d5 2.exd5 Qxd5 3.Nc3 Qa5 4.d4 Nf6 5.Nf3 Bf5 6.Bc4 e6",
-    ),
-    (
-        "Scandinavian (Modern)",
-        "1.e4 d5 2.exd5 Nf6 3.d4 Nxd5 4.Nf3 g6 5.c4 Nb6 6.Nc3 Bg7",
-    ),
-    # ── Pirc / Modern / Alekhine / Nimzowitsch ────────────────────────────────
-    ("Pirc Defense", "1.e4 d6 2.d4 Nf6 3.Nc3 g6 4.Nf3 Bg7 5.Be2 O-O 6.O-O c6 7.a4"),
-    ("Modern Defense", "1.e4 g6 2.d4 Bg7 3.Nc3 d6 4.Be3 a6 5.Qd2 b5 6.f3 Nd7"),
-    ("Alekhine Defense", "1.e4 Nf6 2.e5 Nd5 3.d4 d6 4.Nf3 Bg4 5.Be2 e6 6.O-O Be7 7.h3"),
-    (
-        "Nimzowitsch Defense",
-        "1.e4 Nc6 2.d4 d5 3.Nc3 dxe4 4.d5 Ne5 5.Qd4 Ng6 6.Bc4",
-    ),
-    # ── Queen's Gambit ────────────────────────────────────────────────────────
-    (
-        "Queen's Gambit Accepted",
-        "1.d4 d5 2.c4 dxc4 3.Nf3 Nf6 4.e3 e6 5.Bxc4 c5 6.O-O a6 7.Bb3",
-    ),
-    (
-        "Queen's Gambit Declined",
-        "1.d4 d5 2.c4 e6 3.Nc3 Nf6 4.Bg5 Be7 5.e3 O-O 6.Nf3 Nbd7 7.Rc1",
-    ),
-    (
-        "QGD Lasker",
-        "1.d4 d5 2.c4 e6 3.Nc3 Nf6 4.Bg5 Be7 5.e3 O-O 6.Nf3 Ne4 7.Bxe7 Qxe7 8.cxd5 Nxc3 9.bxc3 exd5",
-    ),
-    (
-        "QGD Tartakower",
-        "1.d4 d5 2.c4 e6 3.Nc3 Nf6 4.Bg5 Be7 5.e3 O-O 6.Nf3 h6 7.Bh4 b6 8.cxd5 Nxd5 9.Bxe7 Qxe7",
-    ),
-    # ── Slav / Semi-Slav ─────────────────────────────────────────────────────
-    ("Slav Defense", "1.d4 d5 2.c4 c6 3.Nf3 Nf6 4.Nc3 dxc4 5.a4 Bf5 6.e3 e6 7.Bxc4"),
-    (
-        "Semi-Slav (Meran)",
-        "1.d4 d5 2.c4 c6 3.Nf3 Nf6 4.Nc3 e6 5.e3 Nbd7 6.Bd3 dxc4 7.Bxc4",
-    ),
-    (
-        "Semi-Slav (Botvinnik)",
-        "1.d4 d5 2.c4 c6 3.Nf3 Nf6 4.Nc3 e6 5.Bg5 dxc4 6.e4 b5 7.e5 h6 8.Bh4 g5",
-    ),
-    # ── Nimzo-Indian ─────────────────────────────────────────────────────────
-    (
-        "Nimzo-Indian (Rubinstein)",
-        "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4 4.e3 O-O 5.Bd3 d5 6.Nf3 c5 7.O-O",
-    ),
-    (
-        "Nimzo-Indian (4.Qc2)",
-        "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4 4.Qc2 O-O 5.a3 Bxc3+ 6.Qxc3 b6 7.Bg5",
-    ),
-    (
-        "Nimzo-Indian (Samisch)",
-        "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4 4.a3 Bxc3+ 5.bxc3 O-O 6.f3 d5 7.cxd5 exd5",
-    ),
-    # ── Queen's Indian ────────────────────────────────────────────────────────
-    (
-        "Queen's Indian",
-        "1.d4 Nf6 2.c4 e6 3.Nf3 b6 4.g3 Bb7 5.Bg2 Be7 6.O-O O-O 7.Nc3",
-    ),
-    (
-        "Queen's Indian (Petrosian)",
-        "1.d4 Nf6 2.c4 e6 3.Nf3 b6 4.a3 Bb7 5.Nc3 d5 6.cxd5 Nxd5 7.e3 Be7",
-    ),
-    # ── King's Indian ─────────────────────────────────────────────────────────
-    (
-        "King's Indian Defense",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.Nf3 O-O 6.Be2 e5 7.O-O",
-    ),
-    (
-        "King's Indian (Classical)",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.Nf3 O-O 6.Be2 e5 7.O-O Nc6 8.d5 Ne7 9.Ne1 Nd7",
-    ),
-    (
-        "King's Indian (Samisch)",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.f3 O-O 6.Be3 e5 7.d5",
-    ),
-    (
-        "King's Indian (Averbakh)",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.Be2 O-O 6.Bg5 c5 7.d5 e6",
-    ),
-    (
-        "King's Indian (Four Pawns)",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.f4 O-O 6.Nf3 c5 7.d5 e6",
-    ),
-    # ── Grunfeld ─────────────────────────────────────────────────────────────
-    (
-        "Grunfeld Defense",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 d5 4.cxd5 Nxd5 5.e4 Nxc3 6.bxc3 Bg7 7.Bc4",
-    ),
-    (
-        "Grunfeld Exchange",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 d5 4.cxd5 Nxd5 5.e4 Nxc3 6.bxc3 Bg7 7.Nf3",
-    ),
-    (
-        "Grunfeld (Russian System)",
-        "1.d4 Nf6 2.c4 g6 3.Nc3 d5 4.Nf3 Bg7 5.Qb3 dxc4 6.Qxc4 O-O 7.e4",
-    ),
-    # ── Benoni / Benko ────────────────────────────────────────────────────────
-    (
-        "Benoni Defense",
-        "1.d4 Nf6 2.c4 c5 3.d5 e6 4.Nc3 exd5 5.cxd5 d6 6.e4 g6 7.Nf3 Bg7",
-    ),
-    (
-        "Benko Gambit",
-        "1.d4 Nf6 2.c4 c5 3.d5 b5 4.cxb5 a6 5.bxa6 Bxa6 6.Nc3 d6 7.Nf3 g6",
-    ),
-    (
-        "Budapest Gambit",
-        "1.d4 Nf6 2.c4 e5 3.dxe5 Ng4 4.Nf3 Nc6 5.Bf4 Bb4+ 6.Nc3 Qe7",
-    ),
-    # ── Other Indian / d4 systems ─────────────────────────────────────────────
-    ("Bogo-Indian", "1.d4 Nf6 2.c4 e6 3.Nf3 Bb4+ 4.Nbd2 b6 5.g3 Bb7 6.Bg2 O-O 7.O-O"),
-    (
-        "Catalan Opening",
-        "1.d4 Nf6 2.c4 e6 3.g3 d5 4.Bg2 Be7 5.Nf3 O-O 6.O-O dxc4 7.Qc2",
-    ),
-    (
-        "Catalan (Closed)",
-        "1.d4 Nf6 2.c4 e6 3.g3 d5 4.Bg2 Be7 5.Nf3 O-O 6.O-O c6 7.Qc2 Nbd7 8.Nbd2",
-    ),
-    ("London System", "1.d4 d5 2.Nf3 Nf6 3.Bf4 e6 4.e3 Bd6 5.Bg3 O-O 6.Nbd2 c5 7.c3"),
-    (
-        "Trompowsky Attack",
-        "1.d4 Nf6 2.Bg5 Ne4 3.Bf4 d5 4.e3 c5 5.Bd3 Nf6 6.Nd2 Nc6 7.c3",
-    ),
-    (
-        "Torre Attack",
-        "1.d4 Nf6 2.Nf3 e6 3.Bg5 d5 4.Nbd2 Be7 5.e3 O-O 6.Bd3 Nbd7 7.O-O",
-    ),
-    (
-        "Colle System",
-        "1.d4 d5 2.Nf3 Nf6 3.e3 e6 4.Bd3 c5 5.c3 Nc6 6.Nbd2 Bd6 7.O-O O-O",
-    ),
-    (
-        "Stonewall Attack",
-        "1.d4 d5 2.e3 Nf6 3.Bd3 c5 4.c3 Nc6 5.f4 Bg4 6.Nf3 e6 7.O-O Bd6",
-    ),
-    (
-        "Blackmar-Diemer Gambit",
-        "1.d4 d5 2.e4 dxe4 3.Nc3 Nf6 4.f3 exf3 5.Nxf3 Bf5 6.Bc4 e6 7.O-O",
-    ),
-    # ── Dutch ─────────────────────────────────────────────────────────────────
-    (
-        "Dutch Defense (Leningrad)",
-        "1.d4 f5 2.g3 Nf6 3.Bg2 g6 4.Nf3 Bg7 5.O-O O-O 6.c4 d6 7.Nc3",
-    ),
-    (
-        "Dutch Stonewall",
-        "1.d4 f5 2.Nf3 Nf6 3.g3 e6 4.Bg2 d5 5.c4 c6 6.O-O Bd6 7.b3",
-    ),
-    # ── Flank openings ───────────────────────────────────────────────────────
-    (
-        "English Opening",
-        "1.c4 e5 2.Nc3 Nf6 3.Nf3 Nc6 4.g3 Bb4 5.Bg2 O-O 6.O-O e4 7.Ng5",
-    ),
-    (
-        "English Symmetrical",
-        "1.c4 c5 2.Nc3 Nc6 3.g3 g6 4.Bg2 Bg7 5.Nf3 Nf6 6.O-O O-O 7.d3",
-    ),
-    (
-        "English (Four Knights)",
-        "1.c4 e5 2.Nc3 Nf6 3.Nf3 Nc6 4.d4 exd4 5.Nxd4 Bb4 6.Nxc6 bxc6 7.e3 O-O",
-    ),
-    (
-        "English (Reversed Sicilian)",
-        "1.c4 e5 2.Nc3 Nf6 3.g3 d5 4.cxd5 Nxd5 5.Bg2 Nb6 6.Nf3 Nc6 7.O-O",
-    ),
-    ("Reti Opening", "1.Nf3 d5 2.g3 Nf6 3.Bg2 c6 4.O-O Bf5 5.d3 e6 6.Nbd2 Be7 7.b3"),
-    (
-        "King's Indian Attack",
-        "1.Nf3 Nf6 2.g3 g6 3.Bg2 Bg7 4.O-O O-O 5.d3 d6 6.Nbd2 c5 7.e4",
-    ),
-    (
-        "King's Indian Attack (vs French)",
-        "1.Nf3 d5 2.g3 e6 3.Bg2 Nf6 4.O-O Be7 5.d3 c5 6.Nbd2 Nc6 7.e4",
-    ),
-    ("Bird's Opening", "1.f4 d5 2.Nf3 Nf6 3.e3 g6 4.Be2 Bg7 5.O-O O-O 6.d3 c5 7.Qe1"),
-    (
-        "From's Gambit",
-        "1.f4 e5 2.fxe5 d6 3.exd6 Bxd6 4.Nf3 g5 5.g3 g4 6.Nh4",
-    ),
-    (
-        "Larsen's Opening",
-        "1.b3 e5 2.Bb2 Nc6 3.e3 d5 4.Bb5 Bd6 5.Nf3 Nge7 6.O-O O-O",
-    ),
-    # ── Short "seed" lines (reinforce very first moves) ───────────────────────
+_SEED_OPENINGS: list[tuple[str, str]] = [
     ("Open Game", "1.e4 e5"),
     ("Sicilian", "1.e4 c5"),
     ("French", "1.e4 e6"),
@@ -441,6 +77,26 @@ CHESS_OPENINGS = [
     ("d4 Nf6 c4 e6 Nc3 Bb4", "1.d4 Nf6 2.c4 e6 3.Nc3 Bb4"),
     ("d4 Nf6 c4 c5", "1.d4 Nf6 2.c4 c5"),
 ]
+
+
+def load_openings() -> list[tuple[str, str]]:
+    """Load openings from Lichess/chess-openings (CC0, 3,627 entries) plus seed lines.
+
+    Returns a list of (name, pgn) tuples. The Lichess dataset is loaded via the
+    HuggingFace datasets library and cached locally after the first download.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        sys.exit("datasets library not found — run: uv add datasets")
+
+    ds = load_dataset("Lichess/chess-openings", split="train")
+    openings = [
+        (row["name"], re.sub(r"(\d+)\. ", r"\1.", row["pgn"]))
+        for row in ds
+    ]
+    openings.extend(_SEED_OPENINGS)
+    return openings
 
 # ─── Model ───────────────────────────────────────────────────────────────────
 
@@ -729,7 +385,7 @@ def load_pgn_games(cfg: TrainConfig, split: str = "train") -> list[str]:
         sys.exit("datasets library not found — run: uv add datasets")
 
     print(f"Loading {cfg.hf_dataset} ({split}) …")
-    ds = load_dataset(cfg.hf_dataset, split=split, streaming=True)
+    ds = load_dataset(cfg.hf_dataset, split=split)
     games: list[str] = []
     for row in ds:
         pgn = row.get("pgn") or row.get("PGN") or row.get("text") or ""
@@ -759,7 +415,7 @@ def build_datasets(
         train_games = train_games[:-n_val]
 
     # Build opening games (repeated for oversampling)
-    opening_games = [pgn for _, pgn in CHESS_OPENINGS] * cfg.openings_repeat
+    opening_games = [pgn for _, pgn in load_openings()] * cfg.openings_repeat
     random.shuffle(opening_games)
     all_train = opening_games + train_games
 
@@ -849,6 +505,11 @@ def train(cfg: TrainConfig):
         best_val_loss = ckpt.get("val_loss", float("inf"))
         print(f"Resumed from {ckpt_path.name} (step {step}, best val loss {best_val_loss:.4f})")
 
+    # ── Compile ───────────────────────────────────────────────────────────────
+    if hasattr(torch, "compile") and device.type == "cuda":
+        model = torch.compile(model)
+        print("torch.compile enabled")
+
     # ── Training loop ─────────────────────────────────────────────────────────
     model.train()
     train_iter = iter(dl_train)
@@ -876,7 +537,8 @@ def train(cfg: TrainConfig):
 
         x, y, w = x.to(device), y.to(device), w.to(device)
 
-        _, loss = model(x, targets=y, loss_weights=w)
+        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
+            _, loss = model(x, targets=y, loss_weights=w)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         if cfg.grad_clip > 0:
@@ -945,7 +607,8 @@ def evaluate(
         if i >= max_iters:
             break
         x, y, w = x.to(device), y.to(device), w.to(device)
-        _, loss = model(x, targets=y, loss_weights=w)
+        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
+            _, loss = model(x, targets=y, loss_weights=w)
         losses.append(loss.item())
     return sum(losses) / len(losses) if losses else float("inf")
 

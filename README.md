@@ -5,7 +5,7 @@
 A family of small chess language models designed for tutoring, focused on opening-phase play. Models are trained on PGN notation using a custom [chess-optimized Byte Pair Encoding (BPE) tokenizer](https://github.com/DVDAGames/pgn-tokenizer) and a three-stage pipeline:
 
 1. pre-training on a [dataset of chess games](https://huggingface.co/datasets/InterwebAlchemy/pgn-dataset) adapted from the work of the Chess Research Project, which sourced the original games from [ChessDB](https://chessdb.sourceforge.net/)
-2. legality-filtered Supervised Fine-Tuning (SFT) using `python-chess` for move validation
+2. legality-filtered Supervised Fine-Tuning (SFT) using `python-chess` for move validation, with opening lines oversampled from the [Lichess chess openings dataset](https://huggingface.co/datasets/Lichess/chess-openings) (CC0)
 3. Direct Preference Optimization (DPO) quality alignment using Stockfish evaluations to generate preference pairs
 
 ## Models
@@ -15,7 +15,7 @@ Models are named after chess time controls to reflect their size tier.
 | Model                                                                 | Params    | Legal Move Rate | Status      |
 | --------------------------------------------------------------------- | --------- | --------------- | ----------- |
 | [kn1ght-bullet](https://huggingface.co/InterwebAlchemy/kn1ght-bullet) | 4.3M      | 99.8%           | Published   |
-| kn1ght-blitz                                                          | ~30M      | —               | In-Progress |
+| kn1ght-blitz                                                          | ~27.5M    | —               | In-Progress |
 | kn1ght-rapid                                                          | ~150–200M | —               | Planned     |
 | kn1ght-classical                                                      | ~1–3B     | —               | Planned     |
 
@@ -86,6 +86,35 @@ GPT-style decoder-only transformer, implemented from scratch in [`scripts/train.
 
 **Note**: Weight tying is applied between the token embedding matrix and the final projection head.
 
+### kn1ght-blitz
+
+`kn1ght-blitz` pre-training ran on Apple Silicon (MPS) using a MacBook Pro M4. Pre-training used the full 3.5M-game corpus — 35× more data than bullet — for 126,000 steps before the val loss plateaued. Context length doubles to 512 tokens for deeper game coverage before midgame drift. SFT expands to 400–500 named opening lines and mixes in Lichess puzzle positions with reconstructed PGN context; DPO targets 5–10k Stockfish preference pairs at higher search depth for cleaner tactical signal.
+
+| Hyperparameter      | Value      |
+| ------------------- | ---------- |
+| Layers              | 8          |
+| Attention heads     | 8          |
+| Embedding dimension | 512        |
+| Context length      | 512 tokens |
+| Parameters          | ~27.5M     |
+| Vocabulary          | 4,096      |
+
+**Pre-training results**: Best val loss **1.1308** at step 126,000 (vs 1.6206 for bullet after 200k steps). Stopped at plateau — val loss improved <0.001 over the final 6,000 steps.
+
+**Pre-training command**:
+
+```bash
+caffeinate -is uv run python scripts/train.py \
+  --n-layer 8 --n-head 8 --n-embd 512 --block-size 512 \
+  --max-games 3500000 \
+  --iters 150000 \
+  --batch-size 32 \
+  --lr 3e-4 \
+  2>&1 | tee .data/blitz_training.log
+```
+
+**Note**: Weight tying is applied between the token embedding matrix and the final projection head. Use `batch-size 32` on MPS — larger batches push attention matrices into a slow memory path on Apple Silicon.
+
 ## Training Pipeline
 
 The kn1ght training pipeline is designed to produce a small model that generates legal moves. Smaller models focus on the opening phase where patterns are more discernible and the model can easily learn to generate legal moves without needing to understand tactics or modeling long-term strategies. Future larger models will expand the focus to later phases of the game, including things like reinforcing common checkmate patterns and endgame scenarios.
@@ -99,7 +128,7 @@ Causal language modelling on [`InterwebAlchemy/pgn-dataset-including-special-tok
 Key techniques:
 
 - **Turn-number de-emphasis**: move-number tokens (`1.`, `2.`, etc.) receive loss weight 0.15 — they're structurally predictable and shouldn't dominate the gradient signal
-- **Opening oversampling**: Encyclopedia of Chess Openings (ECO)coded opening lines are repeated 10× and prepended to training data, biasing the prior toward principled opening play
+- **Opening oversampling**: 3,627 ECO-coded opening lines from [`Lichess/chess-openings`](https://huggingface.co/datasets/Lichess/chess-openings) (CC0) are repeated 10× and prepended to training data, biasing the prior toward principled opening play
 - **Cosine Learning Rate (LR) decay** from `3e-4` to `3e-5` with a 500-step warmup
 
 ```bash

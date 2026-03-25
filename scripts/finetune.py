@@ -42,13 +42,13 @@ from torch.utils.data import DataLoader
 # ── Import shared components from train.py ────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent))
 from train import (
-    CHESS_OPENINGS,
     TOKENIZER_PATH,
     ChessGPT,
     ModelConfig,
     TokenStream,
     get_lr,
     get_turn_number_ids,
+    load_openings,
     select_device,
 )
 
@@ -292,7 +292,8 @@ def finetune(cfg: FinetuneConfig):
     print(f"  Loaded (pre-training step {pretrain_step}, {model.num_params:,} params)")
 
     # ── Generate & validate continuations ─────────────────────────────────────
-    prompts = build_prompts(CHESS_OPENINGS)
+    openings = load_openings()
+    prompts = build_prompts(openings)
     print(f"\nGenerating {cfg.n_per_opening} continuations × {len(prompts)} prompts …")
 
     raw = generate_continuations(
@@ -324,7 +325,7 @@ def finetune(cfg: FinetuneConfig):
     hf_games = load_hf_games(cfg.hf_dataset, cfg.hf_mix_games)
 
     # Oversample opening lines, mix in generated legal games + HF anchor data
-    opening_games = [pgn for _, pgn in CHESS_OPENINGS] * cfg.openings_repeat
+    opening_games = [pgn for _, pgn in openings] * cfg.openings_repeat
     all_train = opening_games + train_generated + hf_games
     random.shuffle(all_train)
 

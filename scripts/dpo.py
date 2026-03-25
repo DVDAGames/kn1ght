@@ -44,7 +44,6 @@ from torch.utils.data import DataLoader, Dataset
 # ── Import shared components from train.py ────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent))
 from train import (
-    CHESS_OPENINGS,
     HF_DATASET,
     TOKENIZER_PATH,
     ChessGPT,
@@ -52,6 +51,7 @@ from train import (
     TokenStream,
     get_lr,
     get_turn_number_ids,
+    load_openings,
     select_device,
 )
 
@@ -535,7 +535,7 @@ def train_dpo(cfg: DPOConfig):
             )
         print(f"\nStockfish: {sf_path}")
         pairs = build_dpo_pairs(
-            CHESS_OPENINGS,
+            load_openings(),
             engine_path=sf_path,
             depth=cfg.engine_depth,
             multipv=cfg.engine_multipv,
