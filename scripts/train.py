@@ -684,7 +684,13 @@ def parse_args():
         default=0.15,
         help="Loss weight for turn-number tokens",
     )
-    p.add_argument("--output-dir", type=str, default=str(OUTPUT_DIR))
+    p.add_argument(
+        "--model-name",
+        type=str,
+        default="kn1ght-bullet",
+        help="Model name; sets output dir to .data/models/<name>/ unless --output-dir is given",
+    )
+    p.add_argument("--output-dir", type=str, default=None, help="Override output directory")
     p.add_argument(
         "--generate",
         type=str,
@@ -711,8 +717,10 @@ def parse_args():
 def main():
     args = parse_args()
 
+    resolved_output_dir = args.output_dir or str(ROOT / ".data" / "models" / "pre-training" / args.model_name)
+
     if args.generate is not None:
-        output_dir = Path(args.output_dir)
+        output_dir = Path(resolved_output_dir)
         if args.checkpoint:
             ckpt_path = Path(args.checkpoint)
         else:
@@ -734,7 +742,7 @@ def main():
         n_embd=args.n_embd,
         openings_repeat=args.openings_repeat,
         turn_number_weight=args.turn_weight,
-        output_dir=args.output_dir,
+        output_dir=resolved_output_dir,
         resume_from=args.resume,
     )
     train(cfg)

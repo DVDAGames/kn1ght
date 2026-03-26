@@ -807,12 +807,18 @@ def _sample_generation(model, tokenizer, device, block_size):
 def parse_args():
     p = argparse.ArgumentParser(description="kn1ght DPO training — move quality alignment")
     p.add_argument(
+        "--model-name",
+        type=str,
+        default="kn1ght-bullet",
+        help="Model name; sets checkpoint to .data/models/sft/<name>/ckpt_latest.pt and output dir to .data/models/dpo/<name>/ unless overridden",
+    )
+    p.add_argument(
         "--checkpoint",
         type=str,
-        default=str(SFT_DIR / "ckpt_005000.pt"),
-        help="SFT checkpoint to start DPO from (also used as the reference model)",
+        default=None,
+        help="Override SFT checkpoint to start DPO from (also used as the reference model)",
     )
-    p.add_argument("--output-dir", type=str, default=str(DPO_OUTPUT_DIR))
+    p.add_argument("--output-dir", type=str, default=None, help="Override output directory")
     p.add_argument(
         "--stockfish",
         type=str,
@@ -855,14 +861,18 @@ def parse_args():
 def main():
     args = parse_args()
 
+    models_dir = ROOT / ".data" / "models"
+    resolved_checkpoint = args.checkpoint or str(models_dir / "sft" / args.model_name / "ckpt_latest.pt")
+    resolved_output_dir = args.output_dir or str(models_dir / "dpo" / args.model_name)
+
     pairs_cache = Path(args.pairs_cache)
     if args.rebuild_pairs and pairs_cache.exists():
         pairs_cache.unlink()
         print(f"Removed existing pairs cache: {pairs_cache}")
 
     cfg = DPOConfig(
-        checkpoint=args.checkpoint,
-        output_dir=args.output_dir,
+        checkpoint=resolved_checkpoint,
+        output_dir=resolved_output_dir,
         pairs_cache=args.pairs_cache,
         stockfish=args.stockfish,
         engine_depth=args.depth,

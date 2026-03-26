@@ -3,21 +3,23 @@
 Export a kn1ght checkpoint to HuggingFace-ready artifacts.
 
 Produces:
-  dist/kn1ght-bullet/
+  dist/<model-name>/
     README.md                ← model card (copied from repo root if absent)
     LICENSE                  ← CC-BY-4.0 (copied from repo root if absent)
-    kn1ght-bullet.png        ← model avatar (copied from assets/)
+    <model-name>.png         ← model avatar (copied from assets/)
     config.json              ← model architecture (gpt2-compatible)
     generation_config.json   ← default generation parameters
     tokenizer.json           ← BPE tokenizer (transformers.js-compatible)
     tokenizer_config.json    ← HF tokenizer metadata
+    model.safetensors        ← model weights in safetensors format
     onnx/
       model.onnx             ← full-precision ONNX for transformers.js
       model_quantized.onnx   ← int8 quantized (smaller, ~4× faster on CPU)
 
 Usage:
   uv run python scripts/export.py
-  uv run python scripts/export.py --checkpoint .data/models/kn1ght-dpo/ckpt_000300.pt
+  uv run python scripts/export.py --model-name kn1ght-blitz
+  uv run python scripts/export.py --checkpoint .data/models/dpo/kn1ght-bullet/ckpt_000300.pt
   uv run python scripts/export.py --no-quantize
 """
 
@@ -29,14 +31,12 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from safetensors.torch import save_model as save_safetensors
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from train import ChessGPT, ModelConfig, TOKENIZER_PATH
 
-CHECKPOINT  = ROOT / ".data/models/kn1ght-dpo/ckpt_000300.pt"
-OUTPUT_DIR  = ROOT / "dist/kn1ght-bullet"
-ONNX_DIR    = OUTPUT_DIR / "onnx"
 ASSETS_DIR  = ROOT / "assets"
 OPSET       = 17
 
@@ -103,13 +103,18 @@ def quantize_onnx(fp32_path: Path, q_path: Path) -> None:
     print(f"  Quantized  ONNX → {q_path.name}  ({q_path.stat().st_size / 1e6:.1f} MB)")
 
 
-def write_config(cfg: ModelConfig, output_dir: Path) -> None:
+def export_safetensors(model: ChessGPT, path: Path) -> None:
+    save_safetensors(model, str(path))
+    print(f"  Exported safetensors → {path.name}  ({path.stat().st_size / 1e6:.1f} MB)")
+
+
+def write_config(cfg: ModelConfig, model_name: str, output_dir: Path) -> None:
     # Use gpt2 model_type so transformers.js recognises the generation loop.
     # Field names follow the HF GPT-2 config schema.
     config = {
         "model_type":                    "gpt2",
         "architectures":                 ["GPT2LMHeadModel"],
-        "_name_or_path":                 "InterwebAlchemy/kn1ght-bullet",
+        "_name_or_path":                 f"InterwebAlchemy/{model_name}",
         "vocab_size":                    cfg.vocab_size,
         "n_embd":                        cfg.n_embd,
         "n_head":                        cfg.n_head,
@@ -170,13 +175,13 @@ def write_tokenizer(output_dir: Path) -> None:
     print(f"  Wrote  tokenizer_config.json")
 
 
-def copy_static_files(output_dir: Path) -> None:
+def copy_static_files(model_name: str, output_dir: Path) -> None:
     """Copy assets and documentation files into the export directory."""
     # Avatar / thumbnail
-    src_png = ASSETS_DIR / "kn1ght-bullet.png"
+    src_png = ASSETS_DIR / f"{model_name}.png"
     if src_png.exists():
-        shutil.copy(src_png, output_dir / "kn1ght-bullet.png")
-        print(f"  Copied  kn1ght-bullet.png")
+        shutil.copy(src_png, output_dir / f"{model_name}.png")
+        print(f"  Copied  {model_name}.png")
     else:
         print(f"  Warning: {src_png} not found — thumbnail will be missing")
 
@@ -192,38 +197,50 @@ def copy_static_files(output_dir: Path) -> None:
 
 
 def main():
+    models_dir = ROOT / ".data" / "models"
     parser = argparse.ArgumentParser(description="Export kn1ght checkpoint for HuggingFace")
-    parser.add_argument("--checkpoint", type=Path, default=CHECKPOINT)
-    parser.add_argument("--output",     type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--model-name",  default="kn1ght-bullet",
+                        help="Model name; used to derive checkpoint/output paths (default: kn1ght-bullet)")
+    parser.add_argument("--checkpoint", type=Path, default=None,
+                        help="Checkpoint path (default: .data/models/dpo/<model-name>/ckpt_latest.pt)")
+    parser.add_argument("--output",     type=Path, default=None,
+                        help="Output directory (default: dist/<model-name>/)")
     parser.add_argument("--no-quantize", action="store_true")
     args = parser.parse_args()
 
-    args.output.mkdir(parents=True, exist_ok=True)
-    ONNX_DIR_ = args.output / "onnx"
-    ONNX_DIR_.mkdir(exist_ok=True)
+    model_name = args.model_name
+    checkpoint = args.checkpoint or models_dir / "dpo" / model_name / "ckpt_latest.pt"
+    output_dir = args.output     or ROOT / "dist" / model_name
 
-    print(f"Loading checkpoint: {args.checkpoint}")
-    model, cfg = load_model(args.checkpoint, torch.device("cpu"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    onnx_dir = output_dir / "onnx"
+    onnx_dir.mkdir(exist_ok=True)
+
+    print(f"Loading checkpoint: {checkpoint}")
+    model, cfg = load_model(checkpoint, torch.device("cpu"))
     print(f"  {model.num_params / 1e6:.1f}M params  |  "
           f"{cfg.n_layer}L {cfg.n_head}H {cfg.n_embd}d  block_size={cfg.block_size}")
 
+    print("\nExporting safetensors...")
+    export_safetensors(model, output_dir / "model.safetensors")
+
     print("\nExporting ONNX...")
-    fp32_path = ONNX_DIR_ / "model.onnx"
+    fp32_path = onnx_dir / "model.onnx"
     export_onnx(model, cfg, fp32_path)
 
     if not args.no_quantize:
         print("\nQuantizing...")
-        quantize_onnx(fp32_path, ONNX_DIR_ / "model_quantized.onnx")
+        quantize_onnx(fp32_path, onnx_dir / "model_quantized.onnx")
 
     print("\nWriting config files...")
-    write_config(cfg, args.output)
-    write_generation_config(args.output)
-    write_tokenizer(args.output)
+    write_config(cfg, model_name, output_dir)
+    write_generation_config(output_dir)
+    write_tokenizer(output_dir)
 
     print("\nCopying static files...")
-    copy_static_files(args.output)
+    copy_static_files(model_name, output_dir)
 
-    print(f"\nDone. Artifacts at: {args.output}")
+    print(f"\nDone. Artifacts at: {output_dir}")
     print("\nTo publish:")
     print("  huggingface-cli login")
     print(f"  uv run python scripts/upload.py")

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Upload kn1ght-bullet artifacts and training checkpoints to HuggingFace Hub.
+Upload kn1ght model artifacts and training checkpoints to HuggingFace Hub.
 
 Uploads:
-  dist/kn1ght-bullet/  → root of the HF model repo
-  .data/models/        → checkpoints/<phase>/ prefix in the same repo
+  dist/<model-name>/  → root of the HF model repo
+  .data/models/       → checkpoints/<phase>/ prefix in the same repo
 
 Checkpoint phases and their source directories:
-  pretrain  →  .data/models/kn1ght-small/
-  sft       →  .data/models/kn1ght-sft/ … kn1ght-sft-v5/
-  dpo       →  .data/models/kn1ght-dpo/
+  pretrain  →  .data/models/pre-training/<model-name>/
+  sft       →  .data/models/sft/<model-name>/
+  dpo       →  .data/models/dpo/<model-name>/
 
 By default only the sft and dpo phases are uploaded (pretrain has ~100 files).
 Pass --phases pretrain sft dpo to include all phases, or --all-checkpoints to
@@ -17,6 +17,7 @@ upload every .pt file within the selected phases (default: latest only).
 
 Usage:
   uv run python scripts/upload.py
+  uv run python scripts/upload.py --model-name kn1ght-blitz
   uv run python scripts/upload.py --no-checkpoints
   uv run python scripts/upload.py --phases dpo
   uv run python scripts/upload.py --phases pretrain sft dpo --all-checkpoints
@@ -30,35 +31,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-REPO_ID   = "InterwebAlchemy/kn1ght-bullet"
-DIST_DIR  = ROOT / "dist" / "kn1ght-bullet"
 MODELS_DIR = ROOT / ".data" / "models"
-
-# Maps CLI phase name → list of local directories (in order)
-PHASE_DIRS: dict[str, list[Path]] = {
-    "pretrain": [MODELS_DIR / "kn1ght-small"],
-    "sft": [
-        MODELS_DIR / "kn1ght-sft",
-        MODELS_DIR / "kn1ght-sft-v2",
-        MODELS_DIR / "kn1ght-sft-v3",
-        MODELS_DIR / "kn1ght-sft-v4",
-        MODELS_DIR / "kn1ght-sft-v5",
-    ],
-    "dpo": [MODELS_DIR / "kn1ght-dpo"],
-}
-
-# Maps each local directory to its path prefix inside the HF repo
-def hf_prefix(phase: str, local_dir: Path) -> str:
-    """Return the checkpoints/<phase>/... prefix for a given local directory."""
-    if phase == "sft":
-        # kn1ght-sft → v1, kn1ght-sft-v2 → v2, …
-        name = local_dir.name
-        version = "v1" if name == "kn1ght-sft" else name.split("-v")[-1]
-        return f"checkpoints/sft/v{version.lstrip('v')}"
-    return f"checkpoints/{phase}"
 
 
 def collect_checkpoints(
+    phase_dirs: dict[str, list[Path]],
     phases: list[str],
     all_checkpoints: bool,
 ) -> list[tuple[Path, str]]:
@@ -72,13 +49,12 @@ def collect_checkpoints(
     pairs: list[tuple[Path, str]] = []
 
     for phase in phases:
-        dirs = PHASE_DIRS.get(phase, [])
+        dirs = phase_dirs.get(phase, [])
         for local_dir in dirs:
             if not local_dir.exists():
                 print(f"  Warning: {local_dir} does not exist — skipping")
                 continue
 
-            prefix = hf_prefix(phase, local_dir)
             ckpts = sorted(local_dir.glob("ckpt_*.pt"))
 
             if all_checkpoints or phase == "dpo":
@@ -89,27 +65,27 @@ def collect_checkpoints(
                 selected = [latest] if latest.exists() else ckpts[-1:]
 
             for ckpt in selected:
-                pairs.append((ckpt, f"{prefix}/{ckpt.name}"))
+                pairs.append((ckpt, f"checkpoints/{phase}/{ckpt.name}"))
 
     return pairs
 
 
-def upload_dist(api, repo_id: str, dry_run: bool) -> None:
-    """Upload the full dist/kn1ght-bullet/ directory to the HF repo root."""
-    if not DIST_DIR.exists():
-        print(f"Error: {DIST_DIR} does not exist — run export.py first")
+def upload_dist(api, repo_id: str, dist_dir: Path, dry_run: bool) -> None:
+    """Upload the dist/<model-name>/ directory to the HF repo root."""
+    if not dist_dir.exists():
+        print(f"Error: {dist_dir} does not exist — run export.py first")
         sys.exit(1)
 
-    print(f"\nUploading model artifacts: {DIST_DIR} → {repo_id}/")
+    print(f"\nUploading model artifacts: {dist_dir} → {repo_id}/")
     if dry_run:
-        for f in sorted(DIST_DIR.rglob("*")):
+        for f in sorted(dist_dir.rglob("*")):
             if f.is_file():
-                rel = f.relative_to(DIST_DIR)
+                rel = f.relative_to(dist_dir)
                 print(f"  [dry-run] {rel}")
         return
 
     api.upload_folder(
-        folder_path=str(DIST_DIR),
+        folder_path=str(dist_dir),
         repo_id=repo_id,
         repo_type="model",
         commit_message="Update model artifacts",
@@ -149,14 +125,18 @@ def upload_checkpoints(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Upload kn1ght-bullet to HuggingFace Hub")
+    parser = argparse.ArgumentParser(description="Upload a kn1ght model to HuggingFace Hub")
     parser.add_argument(
-        "--repo", default=REPO_ID,
-        help=f"HuggingFace repo ID (default: {REPO_ID})",
+        "--model-name", default="kn1ght-bullet",
+        help="Model name; sets repo ID and dist/checkpoint paths (default: kn1ght-bullet)",
+    )
+    parser.add_argument(
+        "--repo", default=None,
+        help="HuggingFace repo ID (default: InterwebAlchemy/<model-name>)",
     )
     parser.add_argument(
         "--phases", nargs="+", default=["sft", "dpo"],
-        choices=list(PHASE_DIRS.keys()),
+        choices=["pretrain", "sft", "dpo"],
         metavar="PHASE",
         help="Checkpoint phases to upload: pretrain sft dpo (default: sft dpo)",
     )
@@ -170,13 +150,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--no-dist", action="store_true",
-        help="Skip uploading dist/kn1ght-bullet/ model artifacts",
+        help="Skip uploading dist/<model-name>/ model artifacts",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Print what would be uploaded without actually uploading",
     )
     args = parser.parse_args()
+
+    model_name = args.model_name
+    repo_id    = args.repo or f"InterwebAlchemy/{model_name}"
+    dist_dir   = ROOT / "dist" / model_name
+    phase_dirs: dict[str, list[Path]] = {
+        "pretrain": [MODELS_DIR / "pre-training" / model_name],
+        "sft":      [MODELS_DIR / "sft"          / model_name],
+        "dpo":      [MODELS_DIR / "dpo"          / model_name],
+    }
 
     try:
         from huggingface_hub import HfApi
@@ -197,16 +186,16 @@ def main() -> None:
             sys.exit(1)
 
     if not args.no_dist:
-        upload_dist(api, args.repo, args.dry_run)
+        upload_dist(api, repo_id, dist_dir, args.dry_run)
 
     if not args.no_checkpoints:
-        pairs = collect_checkpoints(args.phases, args.all_checkpoints)
-        upload_checkpoints(api, args.repo, pairs, args.dry_run)
+        pairs = collect_checkpoints(phase_dirs, args.phases, args.all_checkpoints)
+        upload_checkpoints(api, repo_id, pairs, args.dry_run)
 
     if args.dry_run:
         print("\n[dry-run] No files were uploaded.")
     else:
-        print(f"\nAll uploads complete. View at: https://huggingface.co/{args.repo}")
+        print(f"\nAll uploads complete. View at: https://huggingface.co/{repo_id}")
 
 
 if __name__ == "__main__":

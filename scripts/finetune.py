@@ -462,8 +462,14 @@ def _sample(model, tokenizer, device, block_size, g_end_id):
 
 def parse_args():
     p = argparse.ArgumentParser(description="kn1ght legality-filtered SFT fine-tuning")
-    p.add_argument("--checkpoint", type=str, default=str(PRETRAIN_DIR / "ckpt_latest.pt"))
-    p.add_argument("--output-dir", type=str, default=str(SFT_OUTPUT_DIR))
+    p.add_argument(
+        "--model-name",
+        type=str,
+        default="kn1ght-bullet",
+        help="Model name; sets checkpoint to .data/models/<name>/ckpt_latest.pt and output dir to .data/models/<name>-sft/ unless overridden",
+    )
+    p.add_argument("--checkpoint", type=str, default=None, help="Override checkpoint path")
+    p.add_argument("--output-dir", type=str, default=None, help="Override output directory")
     p.add_argument("--n-per-opening", type=int, default=5, help="Continuations generated per prompt")
     p.add_argument("--min-half-moves", type=int, default=6, help="Min legal half-moves to keep a game")
     p.add_argument("--iters", type=int, default=5_000)
@@ -475,9 +481,14 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    models_dir = ROOT / ".data" / "models"
+    resolved_checkpoint = args.checkpoint or str(models_dir / "pre-training" / args.model_name / "ckpt_latest.pt")
+    resolved_output_dir = args.output_dir or str(models_dir / "sft" / args.model_name)
+
     cfg = FinetuneConfig(
-        checkpoint=args.checkpoint,
-        output_dir=args.output_dir,
+        checkpoint=resolved_checkpoint,
+        output_dir=resolved_output_dir,
         n_per_opening=args.n_per_opening,
         min_half_moves=args.min_half_moves,
         max_iters=args.iters,
